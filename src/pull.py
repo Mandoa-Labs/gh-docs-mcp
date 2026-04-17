@@ -46,12 +46,27 @@ def clone_or_update_github_docs(target_dir, repo_url):
             print(f"An unexpected error occurred: {e}")
             return False
 
-
+def list_files_changed_last_week(target_dir):
+    try:
+        result = subprocess.run(
+            ["git", "-C", target_dir, "log", "--since=1.week", "--name-only", "--pretty=format:"],
+            check=True, capture_output=True, text=True
+        )
+        files = sorted({line for line in result.stdout.splitlines() if line.strip()})
+        files = [f for f in files if f.endswith('.md') and f not in ['index.md', 'README.md']]
+        files = [f for f in files if f.startswith('content/')]
+        return files
+    except subprocess.CalledProcessError as e:
+        print(f"Error listing changed files: {e.stderr}")
+        return []
+    
 def copy_md_files(src_dir, dest_dir):
 
     if not os.path.exists(dest_dir):
         os.makedirs(dest_dir)
-
+    
+    files_changed = list_files_changed_last_week(src_dir)
+    
     for root, dirs, files in os.walk(src_dir):
         for file in files:
             if file.endswith('.md') and file not in ['index.md', 'README.md']:
@@ -62,14 +77,16 @@ def copy_md_files(src_dir, dest_dir):
                 if not os.path.exists(dest_subdir):
                     os.makedirs(dest_subdir)
                 
-                if os.path.exists(dest_subdir + "/" + file):
-                    print(f"File already exists: {file} in {dest_subdir}, skipping fetch.")
+                if os.path.exists(dest_subdir + "/" + file) or full_path in files_changed:
+                    # print(f"File already exists: {file} in {dest_subdir}, skipping fetch.")
                     continue
+                else:
+                    print(f"File {file} in {dest_subdir} is new or changed, fetching content.")
                 
                 api = "https://docs.github.com/api/article/body?pathname=/en/" + full_path.replace('.md', '')
                 
                 result = requests.get(api)
-                time.sleep(2)
+                time.sleep(1)
                 if result.status_code == 429:
                     print("Rate limit exceeded. Please try again later.")
                     sys.exit(1)
@@ -77,6 +94,7 @@ def copy_md_files(src_dir, dest_dir):
                     with open(os.path.join(dest_subdir, file), 'w', encoding='utf-8') as f:
                         f.write(result.text)
                     print(f"Fetched and wrote: {full_path}")
+
 
 def git_helper():
     repo_url = "https://github.com/github/docs.git"
